@@ -1,7 +1,7 @@
 <?php
 /*
-	DBKiss 1.14 (2012-08-05)
-	Author: Cezary Tomczak [cagret@gmail.com]
+	DBKiss 1.15 (2013-05-05)
+	Author: Czarek Tomczak [czarek.tomczak@@gmail.com]
 	Web site: http://code.google.com/p/dbkiss/
 	License: BSD revised (free for any use)
 */
@@ -61,6 +61,9 @@ if (!defined('DBKISS_SQL_DIR')) {
 /*
 	Changelog:
 
+	1.15
+	* Fixed Postgresql 9 bug on Linux, no data rows were displayed
+	for SELECT queries in the SQL editor (Issue 5).
 	1.14
 	* IIS server fixes: $_SERVER['SERVER_ADDR'] missing
 	1.13
@@ -3757,11 +3760,15 @@ function listing($base_query, $md5_get = false)
 			} else {
 				if ('pgsql' == $db_driver)
 				{
-					$affected = @pg_affected_rows($rs);
-					if ($affected || preg_match('#^\s*(DELETE|UPDATE)\s+#i', $query)) {
-						$time = time_end($time);
-						$ret['data_html'] = '<p><b>'.$affected.'</b> rows affected. Time: <b>'.$time.'</b> sec</p>';
-						return $ret;
+					// Since Postgresql 9 on Linux pg_affected_rows() 
+					// returns >= 0 for SELECT queries 
+					if (!preg_match('#^\s*SELECT\s+#i', $query)) {
+						$affected = @pg_affected_rows($rs);
+						if ($affected || preg_match('#^\s*(DELETE|UPDATE)\s+#i', $query)) {
+							$time = time_end($time);
+							$ret['data_html'] = '<p><b>'.$affected.'</b> rows affected. Time: <b>'.$time.'</b> sec</p>';
+							return $ret;
+						}
 					}
 				}
 			}
