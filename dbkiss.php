@@ -1,6 +1,6 @@
 <?php
 /*
-	DBKiss 1.15 (2013-05-05)
+	DBKiss 1.16 (2014-01-04)
 	Author: Czarek Tomczak [czarek.tomczak@@gmail.com]
 	Web site: http://code.google.com/p/dbkiss/
 	License: BSD revised (free for any use)
@@ -61,6 +61,12 @@ if (!defined('DBKISS_SQL_DIR')) {
 /*
 	Changelog:
 
+	1.16
+	* Compatibility fixes for PHP 5.5.7
+	* Permanent links for saved SQL templates, the url in browser
+	  includes template name (Issue 3)
+	* After connecting to database you will be redirected to the
+	  url you came from
 	1.15
 	* Fixed Postgresql 9 bug on Linux, no data rows were displayed
 	for SELECT queries in the SQL editor (Issue 5).
@@ -126,7 +132,7 @@ if (!defined('DBKISS_SQL_DIR')) {
 // todo: "Insert" on table view page
 // todo: edit table structure
 
-error_reporting(-1);
+error_reporting(E_ALL & ~E_STRICT & ~E_DEPRECATED);
 ini_set('display_errors', true);
 if (!ini_get('date.timezone')) {
 	ini_set('date.timezone', 'Europe/Warsaw');
@@ -135,7 +141,7 @@ if (!ini_get('date.timezone')) {
 // Fix IIS missing variables in $_SERVER:
 if (!isset($_SERVER['REQUEST_URI'])) {
 	$_SERVER['REQUEST_URI'] = $_SERVER['PHP_SELF'];
-	if (isset($_SERVER['QUERY_STRING'])) { 
+	if (isset($_SERVER['QUERY_STRING'])) {
 		$_SERVER['REQUEST_URI'] .= '?' . $_SERVER['QUERY_STRING'];
 	}
 }
@@ -646,6 +652,11 @@ if (isset($_GET['disconnect']) && $_GET['disconnect'])
 
 if (!$db_pass || (!$db_driver || !$db_server || !$db_name || !$db_user))
 {
+	$original_url = post('original_url');
+	if (!$original_url) {
+		$original_url = $_SERVER['REQUEST_URI'];
+	}
+
 	if ('POST' == $_SERVER['REQUEST_METHOD'])
 	{
 		$db_driver = post('db_driver');
@@ -671,7 +682,11 @@ if (!$db_pass || (!$db_driver || !$db_server || !$db_name || !$db_user))
 				cookie_set('db_charset', $db_charset, $time);
 				cookie_set('page_charset', $page_charset, $time);
 				cookie_set('remember', post('remember'), $time);
-				header('Location: '.$_SERVER['PHP_SELF']);
+				$redirect_to = $_SERVER['PHP_SELF'];
+				if ($original_url) {
+					$redirect_to = $original_url;
+				}
+				header('Location: '.$redirect_to);
 				exit;
 			}
 		}
@@ -709,6 +724,7 @@ if (!$db_pass || (!$db_driver || !$db_server || !$db_name || !$db_user))
 		<?php endif; ?>
 
 		<form action="<?php echo $_SERVER['PHP_SELF'];?>" method="post">
+		<input type="hidden" name="original_url" value="<?php echo htmlspecialchars($original_url); ?>">
 		<table class="ls ls2" cellspacing="1">
 		<tr>
 			<th>Driver:</th>
@@ -3401,7 +3417,7 @@ function powered_by()
 			w.document.close();
 		}
 		</script>
-		<div style="text-align: center; margin-top: 2em; border-top: #ccc 1px solid; padding-top: 0.5em;">Powered by <a href="javascript:void(0)" onclick="link_noreferer('http://www.gosu.pl/dbkiss/')">dbkiss</a></div>
+		<div style="text-align: center; margin-top: 2em; border-top: #ccc 1px solid; padding-top: 0.5em;">Powered by <a href="javascript:void(0)" onclick="link_noreferer('https://code.google.com/p/dbkiss/')">dbkiss</a></div>
 	<?php
 }
 
@@ -3760,8 +3776,8 @@ function listing($base_query, $md5_get = false)
 			} else {
 				if ('pgsql' == $db_driver)
 				{
-					// Since Postgresql 9 on Linux pg_affected_rows() 
-					// returns >= 0 for SELECT queries 
+					// Since Postgresql 9 on Linux pg_affected_rows()
+					// returns >= 0 for SELECT queries
 					if (!preg_match('#^\s*SELECT\s+#i', $query)) {
 						$affected = @pg_affected_rows($rs);
 						if ($affected || preg_match('#^\s*(DELETE|UPDATE)\s+#i', $query)) {
@@ -4029,7 +4045,8 @@ function listing($base_query, $md5_get = false)
 		'popup'=> 'int',
 		'md5' => 'string',
 		'only_marked' => 'bool',
-		'only_select' => 'bool'
+		'only_select' => 'bool',
+		'sql_template' => 'string'
 	));
 	$post = post(array(
 		'sql' => 'string',
@@ -4037,7 +4054,6 @@ function listing($base_query, $md5_get = false)
 		'only_marked' => 'bool',
 		'only_select' => 'bool',
 		'save_as' => 'string',
-		'load_from' => 'string'
 	));
 
 	if ($get['md5']) {
@@ -4125,21 +4141,21 @@ function listing($base_query, $md5_get = false)
 	}
 
 	if ($sql_dir) {
-		$load_files = dir_read($sql_dir, null, array('.sql'), 'date_desc');
+		$sql_templates = dir_read($sql_dir, null, array('.sql'), 'date_desc');
 	}
-	$load_assoc = array();
+	$sql_templates_assoc = array();
 	if ($sql_dir) {
-		foreach ($load_files as $file) {
+		foreach ($sql_templates as $file) {
 			$file_path = $file;
 			$file = basename($file);
-			$load_assoc[$file] = '('.substr(file_date($file_path), 0, 10).')'.' ' .$file;
+			$sql_templates_assoc[$file] = '('.substr(file_date($file_path), 0, 10).')'.' ' .$file;
 		}
 	}
 
-	if ($sql_dir && 'load' == $post['perform'])
+	if ($sql_dir && $get['sql_template'])
 	{
-		$file = $sql_dir.'/'.$post['load_from'];
-		if (array_key_exists($post['load_from'], $load_assoc) && file_exists($file)) {
+		$file = $sql_dir.'/'.$get['sql_template'];
+		if (array_key_exists($get['sql_template'], $sql_templates_assoc) && file_exists($file)) {
 			$msg .= sprintf('<div>Sql loaded: %s (%s)</div>', basename($file), timestamp(file_date($file)));
 			$post['sql'] = file_get($file);
 			$post['save_as'] = basename($file);
@@ -4305,10 +4321,12 @@ function listing($base_query, $md5_get = false)
 	}
 	function sql_load(form)
 	{
-		if (form.load_from.selectedIndex)
+		if (form.sql_template.selectedIndex)
 		{
-			form.perform.value='load';
-			form.submit();
+			currentUrl = window.location.href;
+			currentUrl = currentUrl.replace(/&sql_template=[^&]*/g, '');
+			window.location = currentUrl + "&sql_template=" +
+					escape(form.sql_template.value)
 			return true;
 		}
 		button_clear(form);
@@ -4373,7 +4391,7 @@ function listing($base_query, $md5_get = false)
 		&nbsp;&nbsp;&nbsp;
 	</td>
 	<td nowrap>
-		<select name="load_from" style="width: 140px;"><option value=""></option><?php echo options($load_assoc);?></select>
+		<select name="sql_template" style="width: 140px;"><option value=""></option><?php echo options($sql_templates_assoc);?></select>
 		&nbsp;
 	</td>
 	<td nowrap>
